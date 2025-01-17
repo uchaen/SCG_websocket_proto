@@ -65,13 +65,13 @@ public class WebSocketGlobalFilter implements GlobalFilter, Ordered {
 
         // WebScoket 업그레이드 요청이면
         if (headers.getUpgrade().equalsIgnoreCase("websocket") && headers.getConnection().contains("Upgrade")) {
-            System.out.println("WebSocket 연결 시도: " + path);
+            System.out.println("[WebSocketGlobalFilter] WebSocket 연결 시도: " + path);
             ServerWebExchangeUtils.setAlreadyRouted(exchange); // 요청이 이미 라우팅되었음을 표시하는 플래그
 
             return handleWebSocket(exchange) // 클라이언트와 서버 사이의 WebSocket 프록시 수행 및 양방향 메시지 전달과 연결 상태 관리
                     .then(chain.filter(exchange)) // 다음 필터로 전달
                     .doOnError(error -> {
-                        System.out.println("라우팅 에러 발생: " + error.getMessage());
+                        System.out.println("[WebSocketGlobalFilter] 라우팅 에러 발생: " + error.getMessage());
                     });
         }
 
@@ -88,19 +88,18 @@ public class WebSocketGlobalFilter implements GlobalFilter, Ordered {
             Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
             URI targetUri = route.getUri();
 
-            System.out.println("WebSocket 연결 성공 - 클라이언트: " + session.getId() + ", 대상 서버: " + targetUri);
+            System.out.println("[WebSocketGlobalFilter] WebSocket 연결 성공 - 클라이언트: " + session.getId() + ", 대상 서버: " + targetUri);
 
             return client.execute(targetUri, targetSession -> { // WebSocketClient를 사용하여 타겟 서버와 WebSocket 연결
                 // 세션 매니저에 세션 추가
-                sessionManager.addSession(session.getId(), session, targetSession);
+                sessionManager.addSession(session, targetSession);
 
                 // 클라이언트 -> 서버 메시지 전달
                 Mono<Void> clientToServer = session.receive()
-                        .map(WebSocketMessage::retain) // 메시지 수신 후 참조 카운트 증가 - 메시지를 다른 세션으로 전달하기 전에 메모리가 해제되는 손실을 방지하기
-                                                       // 위함
+                        .map(WebSocketMessage::retain) // 메시지 수신 후 참조 카운트 증가 - 메시지를 다른 세션으로 전달하기 전에 메모리가 해제되는 손실을 방지
                         .doOnNext(message -> {
                             String payload = message.getPayloadAsText();
-                            System.out.println("클라이언트 -> 서버: " + payload); // 로깅
+                            System.out.println("[WebSocketGlobalFilter] 클라이언트 -> 서버: " + payload);
                         })
                         .flatMap(message -> targetSession.send(Mono.just(message))) // 타겟 서버로 메시지 전송
                         .then();
@@ -110,16 +109,16 @@ public class WebSocketGlobalFilter implements GlobalFilter, Ordered {
                         .map(WebSocketMessage::retain) // 메시지 수신 후 참조 카운트 증가
                         .doOnNext(message -> {
                             String payload = message.getPayloadAsText();
-                            System.out.println("서버 -> 클라이언트: " + payload); // 로깅
+                            System.out.println("[WebSocketGlobalFilter] 서버 -> 클라이언트: " + payload);
                         })
                         .flatMap(message -> session.send(Mono.just(message))) // 클라이언트로 메시지 전송
                         .then();
 
                 // 양방향 메시지 전달을 하나의 스트림으로 결합
                 return Mono.zip(clientToServer, serverToClient)
-                        .doOnError(error -> System.out.println("WebSocket 에러 발생: " + error.getMessage()))
+                        .doOnError(error -> System.out.println("[WebSocketGlobalFilter] WebSocket 에러 발생: " + error.getMessage()))
                         .doFinally(signalType -> {
-                            System.out.println("WebSocket 연결 종료: " + session.getId());
+                            System.out.println("[WebSocketGlobalFilter] WebSocket 연결 종료: " + session.getId());
                             sessionManager.removeSession(session.getId());
                         })
                         .then();

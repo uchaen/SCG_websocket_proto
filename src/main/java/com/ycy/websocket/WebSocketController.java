@@ -24,7 +24,7 @@ public class WebSocketController {
 
     @GetMapping("/sessions")
     public ResponseEntity<List<String>> getActiveSessions() {
-        List<String> sessions = sessionManager.getClientSessions().keySet()
+        List<String> sessions = sessionManager.getSessionMap().keySet()
                 .stream()
                 .collect(Collectors.toList());
         return ResponseEntity.ok(sessions);
