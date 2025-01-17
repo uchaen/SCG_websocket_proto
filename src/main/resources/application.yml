@@ -8,12 +8,11 @@ spring:
           uri: http://httpbin.org:80
           predicates:
             - Path=/get
-        # - id: websocket_route
-        #   uri: ws://localhost:7777
-        #   predicates:
-        #     - Path=/ws/**
-        #   filters:
-        #     - StripPrefix=1
+        - id: websocket_route
+          uri: ws://localhost:7777
+          predicates:
+            - Path=/ws/**
+
 server:
   port: 8080
   reactive:
