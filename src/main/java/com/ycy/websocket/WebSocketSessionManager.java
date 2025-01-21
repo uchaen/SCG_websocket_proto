@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class WebSocketSessionManager {
-    private final Map<String, WebSocketSession> sessionMap = new ConcurrentHashMap<>();
+    private final Map<String, WebSocketSession> sessionMap = new ConcurrentHashMap<>(); // 키: 클라이언트 세션 ID, 값: 서버 세션
 
     public void addSession(WebSocketSession clientSession, WebSocketSession serverSession) {
         System.out.println("[WebSocketSessionManager] 클라이언트 세션 ID: " + clientSession.getId());

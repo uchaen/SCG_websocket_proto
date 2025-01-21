@@ -80,52 +80,50 @@ public class WebSocketGlobalFilter implements GlobalFilter, Ordered {
 
     private Mono<Void> handleWebSocket(ServerWebExchange exchange) {
 
-        // WebSocketHandler: WebSocket 연결이 수립된 후 세션을 처리하는 핸들러
-        WebSocketHandler proxyHandler = session -> {
-            // session: 클라이언트와의 WebSocket 연결 세션
+        // 지연 실행(lazy execution) - WebSocketHandler: WebSocket 연결이 수립된 후 세션을 처리하는 핸들러
+        WebSocketHandler proxyHandler = clientSession -> {
+            // clientSession: 클라이언트와의 WebSocket 연결 세션
 
             // 현재 요청에 매칭된 라우트 정보 가져오기
             Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
             URI targetUri = route.getUri();
 
-            System.out.println("[WebSocketGlobalFilter] WebSocket 연결 성공 - 클라이언트: " + session.getId() + ", 대상 서버: " + targetUri);
+            System.out.println("[WebSocketGlobalFilter] WebSocket 연결 성공 - 클라이언트: " + clientSession.getId() + ", 대상 서버: " + targetUri);
 
-            return client.execute(targetUri, targetSession -> { // WebSocketClient를 사용하여 타겟 서버와 WebSocket 연결
+            return client.execute(targetUri, serverSession -> { // WebSocketClient를 사용하여 타겟 서버와 WebSocket 연결
                 // 세션 매니저에 세션 추가
-                sessionManager.addSession(session, targetSession);
+                sessionManager.addSession(clientSession, serverSession);
 
                 // 클라이언트 -> 서버 메시지 전달
-                Mono<Void> clientToServer = session.receive()
+                Mono<Void> clientToServer = clientSession.receive()
                         .map(WebSocketMessage::retain) // 메시지 수신 후 참조 카운트 증가 - 메시지를 다른 세션으로 전달하기 전에 메모리가 해제되는 손실을 방지
                         .doOnNext(message -> {
-                            String payload = message.getPayloadAsText();
-                            System.out.println("[WebSocketGlobalFilter] 클라이언트 -> 서버: " + payload);
+                            System.out.println("[WebSocketGlobalFilter] 클라이언트 -> 서버: " +  message.getPayloadAsText());
                         })
-                        .flatMap(message -> targetSession.send(Mono.just(message))) // 타겟 서버로 메시지 전송
+                        .flatMap(message -> serverSession.send(Mono.just(message))) // 타겟 서버로 메시지 전송
                         .then();
 
                 // 서버 -> 클라이언트 메시지 전달
-                Mono<Void> serverToClient = targetSession.receive()
+                Mono<Void> serverToClient = serverSession.receive()
                         .map(WebSocketMessage::retain) // 메시지 수신 후 참조 카운트 증가
                         .doOnNext(message -> {
-                            String payload = message.getPayloadAsText();
-                            System.out.println("[WebSocketGlobalFilter] 서버 -> 클라이언트: " + payload);
+                            System.out.println("[WebSocketGlobalFilter] 서버 -> 클라이언트: " + message.getPayloadAsText());
                         })
-                        .flatMap(message -> session.send(Mono.just(message))) // 클라이언트로 메시지 전송
+                        .flatMap(message -> clientSession.send(Mono.just(message))) // 클라이언트로 메시지 전송
                         .then();
 
                 // 양방향 메시지 전달을 하나의 스트림으로 결합
                 return Mono.zip(clientToServer, serverToClient)
                         .doOnError(error -> System.out.println("[WebSocketGlobalFilter] WebSocket 에러 발생: " + error.getMessage()))
-                        .doFinally(signalType -> {
-                            System.out.println("[WebSocketGlobalFilter] WebSocket 연결 종료: " + session.getId());
-                            sessionManager.removeSession(session.getId());
+                        .doFinally(signalType -> { // signalType: 웹소켓 연결 종료 시 발생하는 종료 이벤트 유형
+                            System.out.println("[WebSocketGlobalFilter] WebSocket 연결 종료 - " + signalType + " : " + clientSession.getId());
+                            sessionManager.removeSession(clientSession.getId());
                         })
                         .then();
             });
         };
 
-        // WebSocket 핸드쉐이크 수행(=HTTP 요청을 WebSocket 연결로 업그레이드) 및 연결 처리 시작
+        // WebSocket 핸드쉐이크 수행(=HTTP 요청을 WebSocket 연결로 업그레이드) 및 proxyHandler를 사용하여 연결 처리 시작
         return webSocketService.handleRequest(exchange, proxyHandler);
     }
 
